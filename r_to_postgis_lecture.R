@@ -3,7 +3,7 @@
 #light mapping with ggplot, then see if it's possible to save residuals to db
 
 if(!require(pacman)){install.packages("pacman"); library(pacman)}
-p_load(sf, RPostgres, ggplot2, dplyr)
+p_load(tidycensus, tidyr, sf, RPostgres, ggplot2, dplyr)
 
 host <- "http://learn-pgsql.rc.pdx.edu/"
 db <- "jamgreen"
@@ -23,9 +23,12 @@ dbListFields(conn = con, name = "schools")
 
 mult_school_pgsql <- st_read_db(conn = con, query = "SELECT c.fips as fips, c.pop10 as tot_pop2010,
 c.white as nh_white, c.black as nh_black, c.asian as
-                                nh_asian, c.hispanic as hispanic, a.school_id as school_id, a.school_name as school_name,
-                                a.school_grade as school_grade, a.school_type as school_type, c.county as county,  c.geom
-                                FROM (SELECT a.fips as fips,  b.school_id as school_id, b.name as school_name, b.grade as school_grade, 
+                                nh_asian, c.hispanic as hispanic, a.school_id as school_id, 
+                                a.school_name as school_name,
+                                a.school_grade as school_grade, a.school_type as school_type, 
+                                c.county as county,  c.geom
+                                FROM (SELECT a.fips as fips,  b.school_id as school_id, 
+                                b.name as school_name, b.grade as school_grade, 
                                 b.type as school_type, b.county as county, a.geom
                                 FROM blockgrp2010 a JOIN
                                 schools b ON ST_Intersects(a.geom, b.geom)
@@ -35,9 +38,10 @@ c.white as nh_white, c.black as nh_black, c.asian as
                                 c.fips = a.fips
                                 WHERE c.county = '051';")
 
-#tidyverse approach
+#tidyverse approach----
 
-mult_school_tidy <- st_read_db(conn = con, query = "SELECT a.fips as fips,  b.school_id as school_id, b.name as school_name, b.grade as school_grade, 
+mult_school_tidy <- st_read_db(conn = con, query = "SELECT a.fips as fips,  b.school_id as school_id, 
+b.name as school_name, b.grade as school_grade, 
                                 b.type as school_type, b.county as county, a.geom
                                 FROM blockgrp2010 a JOIN
                                 schools b ON ST_Intersects(a.geom, b.geom)
@@ -54,5 +58,32 @@ mult_school_tidy <- right_join(data.frame(mult_school_tidy), mult_block_grp, by 
 mult_school_tidy <- mult_school_tidy %>% select(-geom.x) %>% 
   rename(geom = geom.y) %>% st_as_sf()
 
+#let's get totals for schools and the like and join back to original table-----
 
-plot(mult_school_pgsql[3])
+school_count <- mult_school_pgsql %>% filter(!is.na(school_name)) %>% 
+  group_by(fips, school_type) %>% summarise(school_count= n()) %>% 
+  as.data.frame() %>% select(-geom)
+
+school_count <- spread(school_count, key = school_type, value = school_count)
+
+school_count <- school_count %>% 
+  mutate(school_count = Public + Private)
+
+mult_school_pgsql <- mult_school_pgsql %>% 
+  left_join(school_count, by = "fips")
+
+mult_school_pgsql <- mult_school_pgsql %>% select(1:6, 12:15) %>% 
+  distinct(fips, .keep_all = TRUE)
+
+mult_school_pgsql[is.na(mult_school_pgsql)] <- 0
+#we have our basic table now let's set up the modeling table with some ancillary census data
+
+key <- scan("census_key.pgpss", what = "")
+
+census_api_key(key, install = TRUE)
+
+#v10 <- load_variables(year = 2015, dataset = "acs5")
+
+housing_val <- get_acs(year = 2015, geography = "block group", variables = "B25077_001E",
+                       state = "OR", county = "Multnomah", key = key)
+
