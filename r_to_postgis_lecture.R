@@ -80,10 +80,28 @@ mult_school_pgsql[is.na(mult_school_pgsql)] <- 0
 
 key <- scan("census_key.pgpss", what = "")
 
-census_api_key(key, install = TRUE)
+#census_api_key(key, install = TRUE)
 
 #v10 <- load_variables(year = 2015, dataset = "acs5")
 
 housing_val <- get_acs(year = 2015, geography = "block group", variables = "B25077_001E",
-                       state = "OR", county = "Multnomah", key = key)
+                       state = "OR", county = "Multnomah", key = key, output = "wide")
 
+housing_val <- housing_val %>% select(GEOID, med_hsg_val = B25077_001E)
+
+mult_school_pgsql <- mult_school_pgsql %>% left_join(housing_val, by = c("fips" = "GEOID"))
+
+mult_school_pgsql <- mult_school_pgsql %>% mutate(nh_white_share = nh_white/tot_pop2010,
+                                                  nh_black_share = nh_black/tot_pop2010,
+                                                  nh_asian_share = nh_asian/tot_pop2010,
+                                                  hisp_share = hispanic/tot_pop2010)
+
+#model it
+
+m1 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + hisp_share, data = mult_school_pgsql)
+m2 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + 
+           hisp_share + Public, data = mult_school_pgsql)
+m3 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + 
+           hisp_share + Public + Private, data = mult_school_pgsql)
+m4 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + 
+           hisp_share + school_count, data = mult_school_pgsql)

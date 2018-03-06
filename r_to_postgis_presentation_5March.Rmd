@@ -1,0 +1,287 @@
+---
+title: 'R and PostGIS: A Pragmatic Approach'
+author: "Jamaal Green"
+date: "3/5/2018"
+output: slidy_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache = TRUE)
+
+source("r_to_postgis_lecture.R")
+
+if(!require(pacman)){install.packages("pacman"); library(pacman)}
+p_load(sf, mapview, stargazer, ggthemes, hrbrthemes, ggplot2, dplyr)
+
+
+```
+
+Introduction
+================================
+
+> - We've got a powerful new tool in PostGIS and SQL
+> - This processing, while vital, is only a fraction of our workflow
+> - We still fall into the trap of intermediate files bloating directories and application jumping (PostGIS -> QGIS -> R/Python/SPSS -> Word Processor)
+
+
+
+You know some SQL...now what?
+=====================================
+
+SQL is the true language of data science, but we see its limitations.
+
+R offers a set of tools and approaches that can make querying relational databases less painful. Doubly so for spatial analysis. 
+
+R and 'sf'...spatial game changers
+=====================================
+
+- R is an open source statistical programming language used by millions of people around the world
+- 'sf' (simple features) is a package that uses PostGIS oriented WKT formats to define spatial objects and perform spatial operatios
+
+Why R?
+=======================================
+
+> - It's *free*
+> - A bevy of well supported packages and active development community
+> - A full programming language that allows you to do everything from modeling to app design to data visualization
+> - It's *free*
+
+'sf'
+=======================================
+
+- Interfaces with the main spatial libraries we've heard about (GEOS, GDAL, and PROJ.4)
+- Is the chosen successor for the older 'sp' package
+- Also interfaces with DBI (database interface package that let's us talk to PostGIS)
+
+Why is 'sf' awesome?
+========================================
+
+> - 'sf' is FAST...uses spatial indices for operations in addition to the C-backed spatial libraries of GDAL and GEOS
+> - 'sf' talks to PostGIS for both reading and writing files and allows for arbitrarily complex queries from R (don't open Postgres or pgadmin unless you want to)
+> - 'sf' objects are treated like regular data frames (major upgrade from 'sp')
+> - It's *free*
+> - Built around "tidyverse" packages
+
+An exceedingly brief intro to the tidyverse...
+===========================================
+
+- A set of packages created and maintained by RStudio built around the idea of working with 'tidy' data  and programming support.
+
+- Tidy data roughly == 'long' data...every column a variable, and every row an observation
+
+- This data structure allows for easier table split-apply-combine functions, data visualization, modeling etc
+
+Yeah, yeah...prove it
+=============================================
+
+Our research question: What effect does the presence of schools in census block groups have on median housing value?
+
+What we need...
+
+> - Basic demos from block groups (% of total population)
+> - Median housing value
+> - School information for each block group (no. of schools, number of type of schools)
+
+The set up
+=========================================
+
+```
+if(!require(pacman)){install.packages("pacman"); library(pacman)}
+p_load(tidycensus, tidyr, sf, RPostgres, ggplot2, dplyr)
+
+host <- "http://learn-pgsql.rc.pdx.edu/"
+db <- "jamgreen"
+user <- "jamgreen"
+pw <- scan("batteries.pgpss", what = "")
+  
+con <- dbConnect(drv = RPostgres::Postgres(), dbname = 'jamgreen',
+                 host = 'learn-pgsql.rc.pdx.edu',
+                 port = 5432, password = pw, user = 'jamgreen')  
+
+#some convenience functions
+
+dbListTables(conn = con)
+dbListFields(conn = con, name = "schools")
+
+```
+
+Get schools and demographics the SQL way!
+=============================================
+How should we solve this?
+
+My approach...if you know a more efficient way, please help me
+==============================================================
+
+
+```
+mult_school_pgsql <- st_read_db(conn = con, query = "SELECT c.fips as fips, 
+c.pop10 as tot_pop2010, c.white as nh_white, c.black as nh_black, 
+c.asian asnh_asian, c.hispanic as hispanic, a.school_id as school_id, 
+a.school_name as school_name, a.school_grade as school_grade, 
+a.school_type as school_type, c.county as county,  c.geom
+  FROM (SELECT a.fips as fips,  b.school_id as school_id, 
+  b.name as school_name, b.grade as school_grade, 
+  b.type as school_type, b.county as county, a.geom
+  FROM blockgrp2010 a JOIN
+  schools b ON ST_Intersects(a.geom, b.geom)
+  WHERE b.county = 'Multnomah' AND  b.grade IS NOT NULL
+  ORDER BY a.fips) as a
+  RIGHT JOIN blockgrp2010 c ON
+  c.fips = a.fips
+  WHERE c.county = '051';") 
+  
+```
+
+Demos and Schools the R (tidyverse) way
+==========================================
+                                
+```
+mult_school_tidy <- st_read_db(conn = con, query = "SELECT a.fips as fips,  
+b.school_id as school_id,  b.name as school_name, b.grade as school_grade, 
+b.type as school_type, b.county as county, a.geom 
+  FROM blockgrp2010 a JOIN schools b 
+  ON ST_Intersects(a.geom, b.geom)
+  WHERE b.county = 'Multnomah' AND  b.grade IS NOT NULL
+  ORDER BY a.fips;") 
+
+mult_block_grp <- st_read_db(conn = con, query = "SELECT fips, 
+pop10 as total_pop, white as nh_white, black as nh_black, 
+asian as nh_asian, hispanic as hispanic, geom
+                            FROM blockgrp2010
+                             WHERE county = '051';")
+
+mult_school_tidy <- 
+right_join(data.frame(mult_school_tidy), mult_block_grp, by = "fips") 
+
+mult_school_tidy <- mult_school_tidy %>% select(-geom.x) %>% 
+  rename(geom = geom.y) %>% st_as_sf() 
+
+```
+
+A Quick Look
+============================
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+mapview(mult_school_pgsql)
+
+```
+
+What's with %>% ?
+=============================
+
+This is the tidyverse "pipe"...allows us to feed an object from the left to right hand side...allows us to chain a series of functions on an object
+
+Allows for more easily readable and understandable code...though here, it may not be as efficient
+
+Let's get these schools organized
+======================================
+
+The problem: we want number of schools, by type, by block group...this would be even more complicated in SQL (unless you have a way of doing this without the creation of a new table or view)
+
+Tidyverse to the rescue
+============================================
+
+```
+ school_count <- mult_school_pgsql %>% filter(!is.na(school_name)) %>% 
+  group_by(fips, school_type) %>% summarise(school_count= n()) %>% 
+  as.data.frame() %>% select(-geom)
+
+school_count <- spread(school_count, key = school_type, value = school_count)
+
+school_count <- school_count %>% 
+  mutate(school_count = Public + Private)
+
+mult_school_pgsql <- mult_school_pgsql %>% 
+  left_join(school_count, by = "fips")
+
+mult_school_pgsql <- mult_school_pgsql %>% 
+  select(1:6, 12:15) %>% 
+  distinct(fips, .keep_all = TRUE)
+
+mult_school_pgsql[is.na(mult_school_pgsql)] <- 0 
+```
+
+
+
+What happened?
+=============================
+
+We still had to create a new table and join back to the original...but look at what the %>% gives us around legibility...What would the SQL for this look like do we think?
+
+
+But wait...something's missing...
+=======================================
+
+> - WHERE ARE OUR HOUSING VALUES?!?!?!
+> - Please don't tell me I have to go to FactFinder...anything but that!
+> - You don't...R to the rescue with *tidycensus*
+
+Get Median Housing Value by block group for Multnomah County
+================================================
+
+``` 
+key <- scan("census_key.pgpss", what = "")
+
+#census_api_key(key, install = TRUE)
+
+#v10 <- load_variables(year = 2015, dataset = "acs5")
+
+housing_val <- get_acs(year = 2015, geography = "block group", 
+variables = "B25077_001E", state = "OR", county = "Multnomah", 
+key = key, output = "wide")
+
+housing_val <- housing_val %>% 
+select(GEOID, med_hsg_val = B25077_001E)
+
+```
+
+That's it!
+=========================
+
+No, really...that's it. Ain't it great? Use R
+
+Finalizing Table for modeling...
+======================================
+Finally...
+
+```
+mult_school_pgsql <- mult_school_pgsql %>% 
+left_join(housing_val, by = c("fips" = "GEOID"))
+
+mult_school_pgsql <- mult_school_pgsql %>% 
+  mutate(nh_white_share = nh_white/tot_pop2010,
+  nh_black_share = nh_black/tot_pop2010,
+  nh_asian_share = nh_asian/tot_pop2010,
+  hisp_share = hispanic/tot_pop2010)
+  
+```
+
+
+
+
+Let's run some models!
+================================
+
+Keeping it straight OLS for now...
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+m1 <- lm(med_hsg_val ~ nh_white_share + nh_black_share + nh_asian_share + 
+           hisp_share, data = mult_school_pgsql)
+
+m2 <- lm(med_hsg_val ~ nh_white_share + nh_black_share + nh_asian_share + 
+           hisp_share + Public, data = mult_school_pgsql)
+
+m3 <- lm(med_hsg_val ~ nh_white_share + nh_black_share + nh_asian_share + 
+           hisp_share + Public + Private, data = mult_school_pgsql)
+
+m4 <- lm(med_hsg_val ~ nh_white_share + nh_black_share + nh_asian_share + 
+           hisp_share + school_count, data = mult_school_pgsql)
+
+stargazer(m1, m2, m3, m4, title = "Effect of Primary Schools on Median Housing Value",
+            type = "html")
+
+```
+
+
