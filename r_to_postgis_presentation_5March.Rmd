@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = FALSE, cache = TRUE)
 source("r_to_postgis_lecture.R")
 
 if(!require(pacman)){install.packages("pacman"); library(pacman)}
-p_load(sf, mapview, stargazer, broom, ggthemes, hrbrthemes, ggplot2, dplyr)
+p_load(sf, mapview, stargazer, tidy_census, broom, hrbrthemes, ggplot2, dplyr)
 
 
 ```
@@ -299,32 +299,31 @@ One More Graph...I swear
 
 p3 <- ggplot(mult_school_pgsql, aes(x = school_count, med_hsg_val, group = school_count)) + geom_violin() + theme_ipsum() +
   labs(x = "Number of Schools per Block Group", y = "Median Housing Value ($)",
-       title = "Asian Pop. Share and Median Housing Value",
+       title = "Number of Schools per Block Group and Median Housing Value",
        caption = "Source: Census 2010, ACS 2011-2015, RLIS") +
-  scale_y_continuous(labels = scales::dollar) +
-  scale_x_continuous(labels = scales::percent)
+  scale_y_continuous(labels = scales::dollar) 
 
 plot(p3)
 
 ```
 
-Let's run some models! (Note this may no be best specification)
+Let's run some models! (Note this is definitely not the be best specification)
 ========================================================
 
 Keeping it straight OLS for now...
 
 ```{r echo=TRUE, message=FALSE, warning=FALSE, results='asis'}
 
-m1 <- lm(med_hsg_val ~ nh_white_share + nh_black_share + nh_asian_share + 
+m1 <- lm(med_hsg_val ~ nh_black_share + nh_asian_share + 
            hisp_share, data = mult_school_pgsql)
 
-m2 <- lm(med_hsg_val ~ nh_white_share + nh_black_share + nh_asian_share + 
+m2 <- lm(med_hsg_val ~ nh_black_share + nh_asian_share + 
            hisp_share + Public, data = mult_school_pgsql)
 
-m3 <- lm(med_hsg_val ~ nh_white_share + nh_black_share + nh_asian_share + 
+m3 <- lm(med_hsg_val ~ nh_black_share + nh_asian_share + 
            hisp_share + Public + Private, data = mult_school_pgsql)
 
-m4 <- lm(med_hsg_val ~ nh_white_share + nh_black_share + nh_asian_share + 
+m4 <- lm(med_hsg_val ~ nh_black_share + nh_asian_share + 
            hisp_share + school_count, data = mult_school_pgsql)
 
 stargazer(m1, m2, m3, m4, title = "Effect of Primary Schools on Median Housing Value", type = "html")
@@ -343,4 +342,14 @@ p4 <- ggplot() + theme_ipsum() + geom_sf(data = m4_tidy, aes(fill = .resid)) +
   labs(title = "Mapped Residuals from Full Model Specification",
        subtitle = "Note the Blob on the West Side...")
 
+plot(p4)
+
 ```
+
+We Did a Lot Here
+==========================================================
+
+- BUT...we took what is normally a 3-4 application process and brought it to 1
+- R provides a flexible, pragmatic platform for a large proportion of most any spatial analytical project
+- Thanks to the *sf* package we are not as dependent upon the limitations of existing desktop GIS for jobs they're not good at (data cleaning, alternative visualiztion and modeling)
+- The ability to read and write to PostGIS is a potentially revolutionary shift
