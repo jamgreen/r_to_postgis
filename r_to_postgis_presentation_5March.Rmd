@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = FALSE, cache = TRUE)
 source("r_to_postgis_lecture.R")
 
 if(!require(pacman)){install.packages("pacman"); library(pacman)}
-p_load(sf, mapview, stargazer, tidy_census, broom, hrbrthemes, ggplot2, dplyr)
+p_load(sf, mapview, stargazer, tidycensus, broom, hrbrthemes, ggplot2, dplyr)
 
 
 ```
@@ -338,9 +338,11 @@ Some Interesting Results...let's map some residuals
 m4_tidy <- augment(m4, mult_school_pgsql)
 m4_tidy <- st_as_sf(m4_tidy)
 
-p4 <- ggplot() + theme_ipsum() + geom_sf(data = m4_tidy, aes(fill = .resid)) +
+p4 <- ggplot() + theme_ipsum() + theme_void() + 
+  geom_sf(data = m4_tidy, aes(fill = .resid)) +
   labs(title = "Mapped Residuals from Full Model Specification",
-       subtitle = "Note the Blob on the West Side...")
+       subtitle = "Note the Blob on the West Side...") +
+  scale_fill_distiller(palette = "Spectral")
 
 plot(p4)
 
