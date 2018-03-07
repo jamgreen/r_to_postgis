@@ -3,7 +3,7 @@
 #light mapping with ggplot, then see if it's possible to save residuals to db
 
 if(!require(pacman)){install.packages("pacman"); library(pacman)}
-p_load(tidycensus, tidyr, sf, RPostgres, ggplot2, dplyr)
+p_load(tidycensus, tidyr, sf, broom, RPostgres, ggplot2, dplyr)
 
 host <- "http://learn-pgsql.rc.pdx.edu/"
 db <- "jamgreen"
@@ -66,6 +66,8 @@ school_count <- mult_school_pgsql %>% filter(!is.na(school_name)) %>%
 
 school_count <- spread(school_count, key = school_type, value = school_count)
 
+school_count[is.na(school_count)] <- 0
+
 school_count <- school_count %>% 
   mutate(school_count = Public + Private)
 
@@ -98,10 +100,15 @@ mult_school_pgsql <- mult_school_pgsql %>% mutate(nh_white_share = nh_white/tot_
 
 #model it
 
-m1 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + hisp_share, data = mult_school_pgsql)
+m1 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + hisp_share, 
+         data = mult_school_pgsql)
 m2 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + 
            hisp_share + Public, data = mult_school_pgsql)
 m3 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + 
            hisp_share + Public + Private, data = mult_school_pgsql)
 m4 <- lm(med_hsg_val ~  nh_black_share + nh_asian_share + 
-           hisp_share + school_count, data = mult_school_pgsql)
+           hisp_share + school_count, data = mult_school_pgsql,
+         na.action = na.exclude)
+
+m4_tidy <- augment(m4, mult_school_pgsql)
+m4_tidy <- st_as_sf(m4_tidy)
